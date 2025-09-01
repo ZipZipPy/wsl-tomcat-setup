@@ -1,0 +1,4 @@
+# Editor-specific files
+.vscode/
+*.swp
+*.swo
