@@ -2,7 +2,7 @@
 
 # =======================================================
 # End-to-end Tomcat Setup Script for LabWare LIMS
-# Version: Draft
+# Version: v1.0.1
 # Author: Supawee Sitthiparkkun
 #
 # This script automates the following:
