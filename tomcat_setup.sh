@@ -2,6 +2,8 @@
 
 # =======================================================
 # End-to-end Tomcat Setup Script for LabWare LIMS
+# Version: Draft
+# Author: Supawee Sitthiparkkun
 #
 # This script automates the following:
 #   - Installs dependencies (OpenJDK 21, ACL).
@@ -78,7 +80,7 @@ check_for_existing_install() {
       uninstall_tomcat "$major_version"
       echo "Existing version has been uninstalled. Exiting script."
       exit 0
-    else
+    elif [[ "$action" == "stop" ]]; then
       # If the user chooses 'stop', check if the service is running before trying to stop it.
       local service_name="tomcat$major_version.service"
       if systemctl is-active --quiet "$service_name"; then
@@ -88,6 +90,9 @@ check_for_existing_install() {
           echo "Installation directory exists, but the service is not active."
       fi
       echo "Exiting script."
+      exit 1
+	else
+      echo "Invalid option. Exiting script."
       exit 1
     fi
   fi
@@ -178,7 +183,7 @@ uninstall_tomcat() {
   # Remove the current user from the 'tomcat' group FIRST.
   # This ensures the group is empty before we try to delete it.
   if groups "$CURRENT_USER" | grep -q '\btomcat\b'; then
-    # echo "Removing user $CURRENT_USER from tomcat group..."
+    echo "Removing user $CURRENT_USER from tomcat group..."
     sudo gpasswd -d "$CURRENT_USER" tomcat
   fi
 
@@ -356,7 +361,7 @@ echo "--- Step 5: Updating packages and installing OpenJDK $JAVA_VERSION and ACL
 sudo apt-get update
 sudo apt-get upgrade -y
 # Install acl to manage file permissions with setfacl
-sudo apt-get install -y "openjdk-$JAVA_VERSION-jdk" acl curl wget
+sudo apt-get install -y "openjdk-$JAVA_VERSION-jdk" acl curl wget lsb-release
 echo ""
 
 # --- Step 6: Download and Install Tomcat ---
