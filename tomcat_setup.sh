@@ -48,7 +48,8 @@ get_latest_minor_version() {
   local download_url="https://dlcdn.apache.org/tomcat/tomcat-$major_version/"
   
   # Fetches the latest version by looking for the highest version number in the directory listing.
-  local latest_version=$(curl -s "$download_url" | grep -oP "v$major_version\.[0-9]+\.[0-9]+" | sort -V | tail -n 1 | sed 's/v//')
+  # This regex is more flexible to handle different versioning schemes, including milestone releases (e.g., -M1).
+  local latest_version=$(curl -s "$download_url" | grep -oP "v$major_version(\.[0-9]+)+(-[a-zA-Z0-9]+)?" | sort -V | tail -n 1 | sed 's/v//')
 
   if [ -z "$latest_version" ]; then
     echo "Error: Could not determine the latest minor version for Tomcat $major_version." >&2
@@ -102,25 +103,40 @@ check_for_existing_install() {
 download_latest_jdbc_from_github() {
   local repo_owner="$1"
   local repo_name="$2"
-  local file_pattern="$3" # e.g., ".jre11.jar"
+  # Accepts a space-separated string of patterns, e.g., ".jre21.jar .jre17.jar"
+  local file_patterns="$3"
   local friendly_name="$4"
+  local download_url=""
 
   echo "Downloading latest $friendly_name JDBC Driver"
   
-  # Use GitHub API for reliability. This is much more stable than scraping HTML.
+  # Use GitHub API for reliability.
   local api_url="https://api.github.com/repos/$repo_owner/$repo_name/releases/latest"
   
-  # Use curl to fetch release info, then grep/sed to parse the download URL.
-  local download_url
-  download_url=$(curl -s "$api_url" | grep "browser_download_url" | grep -oP "https.*$file_pattern\"" | sed 's/"//')
+  # Fetch the release info once.
+  local release_info
+  if ! release_info=$(curl -s "$api_url"); then
+      echo "Error: Failed to fetch release info from GitHub API." >&2
+      return 1
+  fi
+
+  # Loop through the provided patterns to find a suitable download URL.
+  for pattern in $file_patterns; do
+      download_url=$(echo "$release_info" | jq -r --arg p "$pattern" '.assets[] | .browser_download_url | select(test($p))')
+      if [ -n "$download_url" ]; then
+          echo "Found a matching driver with pattern: $pattern"
+          break # Exit the loop once a match is found
+      fi
+  done
   
   if [ -z "$download_url" ]; then
-    echo "Error: Could not find the latest $friendly_name driver download URL." >&2
+    echo "Error: Could not find a suitable $friendly_name driver download URL with the provided patterns." >&2
     return 1
   fi
   
   # Get the original filename from the URL.
-  local filename=$(basename "$download_url")
+  local filename
+  filename=$(basename "$download_url")
   local download_path
   download_path=$(mktemp)
   TMP_FILES+=("$download_path")
@@ -129,7 +145,7 @@ download_latest_jdbc_from_github() {
   if wget --quiet -O "$download_path" "$download_url"; then
     echo "Download successful."
     
-    # 1. Copy the file to the destination AND rename it correctly.
+    # 1. Copy the file to the destination.
     sudo cp "$download_path" "$INSTALL_DIR/lib/$filename"
     # 2. Set the correct owner so Tomcat can use it.
     sudo chown tomcat:tomcat "$INSTALL_DIR/lib/$filename"
@@ -137,10 +153,9 @@ download_latest_jdbc_from_github() {
     sudo chmod 644 "$INSTALL_DIR/lib/$filename"
     
     echo "$friendly_name JDBC driver installed to $INSTALL_DIR/lib/$filename"
-    rm "$download_path"
   else
     echo "Error: Failed to download the $friendly_name JDBC driver." >&2
-    rm "$download_path"
+    # The cleanup of the temp file is handled by the trap.
     return 1
   fi
   echo ""
@@ -361,7 +376,7 @@ echo "--- Step 5: Updating packages and installing OpenJDK $JAVA_VERSION and ACL
 sudo apt-get update
 sudo apt-get upgrade -y
 # Install acl to manage file permissions with setfacl
-sudo apt-get install -y "openjdk-$JAVA_VERSION-jdk" acl curl wget lsb-release
+sudo apt-get install -y "openjdk-$JAVA_VERSION-jdk" acl curl wget lsb-release jq
 echo ""
 
 # --- Step 6: Download and Install Tomcat ---
@@ -426,8 +441,10 @@ echo ""
 
 # --- Step 8: Download and Install JDBC Drivers ---
 echo "--- Step 8: Download and Install JDBC Drivers ---"
+# For MS SQL, the .jre11.jar is compatible with Java 11 and newer.
 download_latest_jdbc_from_github "microsoft" "mssql-jdbc" ".jre11.jar" "MS SQL Server"
-download_latest_jdbc_from_github "pgjdbc" "pgjdbc" "postgresql-.*\.jar" "PostgreSQL"
+# For PostgreSQL, we use a more specific regex to ensure we get the main JAR.
+download_latest_jdbc_from_github "pgjdbc" "pgjdbc" "postgresql-[0-9.]+\.jar$" "PostgreSQL"
 
 # --- Step 9: Create setenv.sh and configure memory ---
 echo "--- Step 9: Configuring Tomcat memory settings ---"
