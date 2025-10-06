@@ -103,34 +103,20 @@ check_for_existing_install() {
 download_latest_jdbc_from_github() {
   local repo_owner="$1"
   local repo_name="$2"
-  # Accepts a space-separated string of patterns, e.g., ".jre21.jar .jre17.jar"
-  local file_patterns="$3"
+  local file_pattern="$3" # e.g., ".jre11.jar"
   local friendly_name="$4"
-  local download_url=""
 
   echo "Downloading latest $friendly_name JDBC Driver"
   
   # Use GitHub API for reliability.
   local api_url="https://api.github.com/repos/$repo_owner/$repo_name/releases/latest"
   
-  # Fetch the release info once.
-  local release_info
-  if ! release_info=$(curl -s "$api_url"); then
-      echo "Error: Failed to fetch release info from GitHub API." >&2
-      return 1
-  fi
-
-  # Loop through the provided patterns to find a suitable download URL.
-  for pattern in $file_patterns; do
-      download_url=$(echo "$release_info" | jq -r --arg p "$pattern" '.assets[] | .browser_download_url | select(test($p))')
-      if [ -n "$download_url" ]; then
-          echo "Found a matching driver with pattern: $pattern"
-          break # Exit the loop once a match is found
-      fi
-  done
+  # Use curl to fetch release info, then jq to parse the download URL.
+  local download_url
+  download_url=$(curl -s "$api_url" | jq -r --arg p "$file_pattern" '.assets[] | .browser_download_url | select(test($p))')
   
   if [ -z "$download_url" ]; then
-    echo "Error: Could not find a suitable $friendly_name driver download URL with the provided patterns." >&2
+    echo "Error: Could not find the latest $friendly_name driver download URL matching '$file_pattern'." >&2
     return 1
   fi
   
